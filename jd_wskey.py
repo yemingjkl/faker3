@@ -122,18 +122,31 @@ ver = 21212  # 版本号
 #     '''
 
 def ttotp(key):
-    key = base64.b32decode(key.upper() + '=' * ((8 - len(key)) % 8))
-	@@ -134,9 +55,9 @@ def ql_send(text):
+       key = base64.b32decode(key.upper() + '=' * ((8 - len(key)) % 8))
+       counter = struct.pack('>Q', int(time.time() / 30))
+       mac = hmac.new(key, counter, 'sha1').digest()
+       offset = mac[-1] & 0x0f
+       binary = struct.unpack('>L', mac[offset:offset + 4])[0] & 0x7fffffff 
+       return str(binary)[-6:].zfill(6)
+
+def ql_send(text):
     if "WSKEY_SEND" in os.environ and os.environ["WSKEY_SEND"] == 'disable':
         return True
     else:
-        try:  # 异常捕捉
+        try: # 异常捕捉
             send('WSKEY转换', text)  # 消息发送
         except Exception as err:  # 异常捕捉
             logger.debug(str(err))  # Debug日志输出
             logger.info("通知发送失败")  # 标准日志输出
-
-	@@ -152,56 +73,50 @@ def get_qltoken(username, password, twoFactorSecret):  # 方法 用于获取青
+  
+# 登录青龙 返回值 token
+def get_qltoken(username, password, twoFactorSecret):  # 方法 用于获取青龙 Token
+    logger.info("Token失效, 新登陆\n")  # 日志输出
+    if twoFactorSecret:
+        try:
+            twoCode = ttotp(twoFactorSecret)
+        except Exception as err:
+            logger.debug(str(err))  # Debug日志输出
             logger.info("TOTP异常")
             sys.exit(1)
         url = ql_url + "api/user/login"  # 设置青龙地址 使用 format格式化自定义端口
@@ -190,7 +203,8 @@ def ttotp(key):
                 return token
             else:
                 ql_send("青龙登录失败!")
-	@@ -210,21 +125,10 @@ def get_qltoken(username, password, twoFactorSecret):  # 方法 用于获取青
+                sys.exit(1)  # 脚本退出
+        except Exception as err:
             logger.debug(str(err))  # Debug日志输出
             logger.info("使用旧版青龙登录接口")
             url = ql_url + 'api/login'  # 设置青龙地址 使用 format格式化自定义端口
@@ -212,15 +226,29 @@ def ttotp(key):
                 logger.debug(str(err))  # Debug日志输出
                 logger.info("青龙登录失败, 请检查面板状态!")  # 标准日志输出
                 ql_send('青龙登陆失败, 请检查面板状态.')
-	@@ -236,7 +140,7 @@ def get_qltoken(username, password, twoFactorSecret):  # 方法 用于获取青
+                sys.exit(1)  # 脚本退出
+            else:  # 无异常执行分支
+                return token  # 返回 token值
+        # else:  # 无异常执行分支
+        #     return token  # 返回 token值
 
 
 # 返回值 Token
 def ql_login():  # 方法 青龙登录(获取Token 功能同上)
     path = '/ql/config/auth.json'  # 设置青龙 auth文件地址
     if not os.path.isfile(path):
-        path = '/ql/data/config/auth.json'  # 尝试设置青龙 auth 新版文件地址
-	@@ -254,129 +158,117 @@ def ql_login():  # 方法 青龙登录(获取Token 功能同上)
+        path = '/ql/data/config/auth.json'  # 尝试设置青龙 auth 新版文件地址 
+    if os.path.isfile(path):  # 进行文件真值判断
+        with open(path, "r") as file:  # 上下文管理
+            auth = file.read()  # 读取文件
+            file.close()  # 关闭文件
+        auth = json.loads(auth)  # 使用 json模块读取
+        username = auth["username"]  # 提取 username
+        password = auth["password"]  # 提取 password
+        token = auth["token"]  # 提取 authkey
+        try:
+            twoFactorSecret = auth["twoFactorSecret"]
+        except Exception as err:
             logger.debug(str(err))  # Debug日志输出
             twoFactorSecret = ''
         if token == '':  # 判断 Token是否为空
@@ -350,7 +378,9 @@ def getTokenx(wskey):  # 方法 获取 Wskey转换使用的 Token 由 JD_API 返
     headers = {
         'cookie': wskey,
         'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-	@@ -386,67 +278,27 @@ def getTokenx(wskey):  # 方法 获取 Wskey转换使用的 Token 由 JD_API 返
+        'charset': 'UTF-8',
+        'accept-encoding': 'br,gzip,deflate',
+        'user-agent': ua
     }  # 设置 HTTP头
     url = 'https://api.m.jd.com/client.action'  # 设置 URL地址
     data = 'body=%7B%22to%22%3A%22https%253a%252f%252fplogin.m.jd.com%252fjd-mlogin%252fstatic%252fhtml%252fappjmp_blank.html%22%7D&'  # 设置 POST 载荷
@@ -418,7 +448,10 @@ def appjmp(wskey, tokenKey):  # 方法 传递 wskey & tokenKey
     headers = {
         'User-Agent': ua,
         'accept': 'accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-	@@ -457,42 +309,46 @@ def appjmp(wskey, tokenKey):  # 方法 传递 wskey & tokenKey
+        'x-requested-with': 'com.jingdong.app.mall'
+    }  # 设置 HTTP头
+    params = {
+        'tokenKey': tokenKey,
         'to': 'https://plogin.m.jd.com/jd-mlogin/static/html/appjmp_blank.html'
     }  # 设置 HTTP_URL 参数
     url = 'https://un.m.jd.com/cgi-bin/app/appjmp'  # 设置 URL地址
@@ -461,7 +494,8 @@ def update():  # 方法 脚本更新模块
         logger.info("当前脚本版本: " + str(ver) + "新版本: " + str(up_ver))  # 标准日志输出
         logger.info("存在新版本, 请更新脚本后执行")  # 标准日志输出
         logger.info("--------------------\n")  # 标准日志输出
-	@@ -501,10 +357,31 @@ def update():  # 方法 脚本更新模块
+        text = '当前脚本版本: {0}新版本: {1}, 请更新脚本~!'.format(ver, up_ver)  # 设置发送内容
+        ql_send(text)
         # sys.exit(0)  # 退出脚本 [未启用]
 
 
@@ -472,7 +506,16 @@ def ql_check(port):  # 方法 检查青龙端口
         sock.connect(('127.0.0.1', port))  # 请求端口
     except Exception as err:  # 捕捉异常
         logger.debug(str(err))  # 调试日志输出
-	@@ -523,264 +400,192 @@ def serch_ck(pin):  # 方法 搜索 Pin
+        sock.close()  # 端口关闭
+        return False  # 返回 -> False[Bool]
+    else:  # 分支判断
+        sock.close()  # 关闭端口
+        return True  # 返回 -> True[Bool]
+def serch_ck(pin):  # 方法 搜索 Pin
+    for i in range(len(envlist)):  # For循环 变量[envlist]的数量
+        if "name" not in envlist[i] or envlist[i]["name"] != "JD_COOKIE":  # 判断 envlist内容
+            continue  # 继续循环
+        if pin in envlist[i]['value']:  # 判断envlist取值['value']
             value = envlist[i]['value']  # 取值['value']
             id = envlist[i][ql_id]  # 取值 [ql_id](变量)
             logger.info(str(pin) + "检索成功\n")  # 标准日志输出
